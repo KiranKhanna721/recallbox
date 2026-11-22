@@ -15,4 +15,19 @@ test.describe('API tests', () => {
     await page.waitForSelector('[data-testid="app-navigation"]', { timeout: 15000 })
     // If the app loaded and connected, the WS endpoint works
   })
+
+  test('server actions reject unauthenticated callers', async ({ request }) => {
+    for (const name of ['askNotes', 'loadDemoNotes']) {
+      const res = await request.post(`/api/actions/${name}`, { data: { question: 'anything' } })
+      expect(res.status()).toBe(401)
+    }
+  })
+
+  test('server actions reject a forged bearer token', async ({ request }) => {
+    const res = await request.post('/api/actions/askNotes', {
+      headers: { Authorization: 'Bearer not-a-real-jwt' },
+      data: { question: 'What is RAG?' },
+    })
+    expect(res.status()).toBe(401)
+  })
 })

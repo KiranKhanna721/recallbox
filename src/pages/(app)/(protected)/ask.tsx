@@ -59,11 +59,14 @@ export default function AskPage() {
       setParams({}, { replace: true })
       void ask(q.slice(0, 500))
     }
-     
   }, [])
 
-  useEffect(() => () => abortRef.current?.abort(), [])
-  useEffect(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), [exchanges])
+  useEffect(() => () => {
+    abortRef.current?.abort()
+  }, [])
+  useEffect(() => {
+    if (exchanges.length) bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [exchanges])
 
   const noNotes = notesStatus === 'ready' && records.length === 0
 

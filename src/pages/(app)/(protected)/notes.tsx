@@ -64,7 +64,6 @@ export default function NotesPage() {
   // `?new=1` (from the sidebar, dashboard, or Alt+N) creates once the room is writable.
   useEffect(() => {
     if (params.get('new') === '1' && ready) void createNote()
-     
   }, [params, ready])
 
   // "/" focuses search.

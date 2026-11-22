@@ -26,7 +26,9 @@ export default function Navigation() {
   const navigate = useNavigate()
   const { isSignedIn } = useAuthProfileReady({ requireUser: true })
 
-  useEffect(() => setOpen(false), [location.pathname, location.search])
+  useEffect(() => {
+    setOpen(false)
+  }, [location.pathname, location.search])
 
   // Alt+N: new note from anywhere in the app.
   useEffect(() => {

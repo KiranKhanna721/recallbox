@@ -33,13 +33,11 @@ export function NoteEditor({ note, onDeleted }: { note: RecordData<NoteData>; on
       setTitle(note.data.title ?? '')
       setContent(note.data.content ?? '')
     }
-     
   }, [note.data.title, note.data.content])
 
   // Focus the title of a fresh note.
   useEffect(() => {
     if (note.data.title === 'Untitled note' && !note.data.content) titleRef.current?.select()
-     
   }, [])
 
   const save = useCallback(async () => {

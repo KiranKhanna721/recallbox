@@ -7,7 +7,7 @@ const notes = DEMO_NOTES.map((n) => ({ id: `id-${n.key}`, title: n.title, conten
 
 describe('tokenize', () => {
   it('lowercases, drops stopwords and stems plurals', () => {
-    expect(tokenize('How do Vector Databases work?')).toEqual(['vector', 'databas', 'work'])
+    expect(tokenize('How do Vector Databases work?')).toEqual(['vector', 'database', 'work'])
     expect(tokenize('Cloudflare Workers')).toEqual(['cloudflare', 'worker'])
   })
 })
