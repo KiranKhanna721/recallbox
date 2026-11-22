@@ -118,6 +118,10 @@ export interface Env extends DOBindings<typeof __DO_MANIFEST__> {
    * an authenticated app owner/admin. deepspace dev/test set it locally.
    */
   ALLOW_DEBUG_ROUTES?: string
+  /** Hugging Face token for Inference Providers (secrets store only). */
+  HF_TOKEN?: string
+  /** Optional model override, e.g. "meta-llama/Llama-3.1-8B-Instruct:cheapest". */
+  HF_MODEL?: string
 }
 
 export type AppContext = { Bindings: Env }

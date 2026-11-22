@@ -9,7 +9,7 @@ RecallBox is a personal knowledge base built on [DeepSpace](https://docs.deep.sp
 1. Sign in with DeepSpace auth (GitHub or Google).
 2. Create, edit, search and delete notes. They sync live and persist across reloads.
 3. Ask a question on **Ask AI**, or from the dashboard's "Ask your knowledge" box.
-4. The server retrieves the most relevant passages from **your** notes and asks Claude for a cited answer.
+4. The server retrieves the most relevant passages from **your** notes and asks an open-weights model on Hugging Face for a cited answer.
 5. Click a citation chip (`S1`) or a source card to open the exact note.
 
 No notes yet? **Load demo notes** seeds five technical notes (vector databases, React hooks, API auth, RAG, Cloudflare Workers). Loading them again never creates duplicates.
@@ -25,7 +25,7 @@ Browser (React 19 + Vite + Tailwind, file-based routes)
         Bearer JWT                         1. verify JWT (action route)
                                            2. tools.query(notes, where userId = caller)
                                            3. BM25 keyword ranking → top passages
-                                           4. tools.integration('anthropic/chat-completion')
+                                           4. fetch Hugging Face router (HF_TOKEN secret)
                                            5. validate citations → return {answer, citations}
 ```
 
@@ -46,7 +46,7 @@ Browser (React 19 + Vite + Tailwind, file-based routes)
 3. **Load only the caller's notes.** `tools.query('notes', { where: { userId } })`. Each row is checked again with `data.userId === userId`, because server actions run with RBAC off.
 4. **Rank.** BM25 (k1 = 1.2, b = 0.75) runs over ~700-character passages, with stopword removal and light stemming. Weak tail matches (< 25% of the best score) are dropped. The result is capped at 6 passages, 3 per note, and ~6,000 characters.
 5. **Short-circuit.** If nothing matches, the server returns *"I couldn't find enough information in your saved notes to answer that question."* without calling the model, at no cost.
-6. **Generate.** Claude (`claude-sonnet-5-5`, via the `anthropic/chat-completion` integration, temperature 0.2) receives the passages inside `<source label="S1">` tags. The system prompt says sources are untrusted data, never instructions, and requires JSON output: `{sufficient, answer, citations}`.
+6. **Generate.** An open-weights model on Hugging Face Inference Providers (default `openai/gpt-oss-120b:fastest`, overridable with an `HF_MODEL` secret, temperature 0.2) receives the passages inside `<source label="S1">` tags. The system prompt says sources are untrusted data, never instructions, and requires JSON output: `{sufficient, answer, citations}`.
 7. **Validate citations.** The model never sees note ids, only `S1…Sn`. The server maps labels back to the note ids it retrieved for this caller. Unknown labels are dropped and their inline markers stripped. An answer with no valid citation becomes the "insufficient" message.
 8. **Return** `{answer, citations: [{label, noteId, title, excerpt}], sufficient}`. The UI turns `[S1]` markers into links to `/notes?id=…`.
 
@@ -57,8 +57,16 @@ Browser (React 19 + Vite + Tailwind, file-based routes)
 | **Native auth** (`DeepSpaceAuthProvider`, `AuthGate`, `AuthOverlay`, `signOut`) | GitHub/Google sign-in. `(protected)` routes are gated. Action calls carry a verified JWT. | No custom auth code. Identity comes from a verified token, never from client input. |
 | **Records / RecordRoom** (`useQuery`, `useMutations`, collection RBAC) | Persistent notes with live sync across tabs. | Ownership is enforced in the Durable Object before any data leaves the server, so a client cannot read or write someone else's notes even with a hand-crafted WebSocket message. |
 | **Server actions** (`ActionHandler`, `tools.query/create/integration`) | `askNotes` and `loadDemoNotes`. | Retrieval and the AI call run server-side, and the AI credential never reaches the browser. |
-| **Integration proxy** (`anthropic/chat-completion`) | Claude answers with no API key stored anywhere. | Billing goes to the app owner (`src/integrations.ts`), so reviewers can use it without their own credits. Sign-in is still required. |
+| **Secrets store** (`npx deepspace secrets set HF_TOKEN=…`) | Holds the Hugging Face token. The worker reads it as `env.HF_TOKEN`. | The key never appears in code, Git, or the browser, and the same mechanism works in dev and production. |
 | **Deploy** (`npx deepspace deploy`) | Cloudflare Workers for Platforms at `recallbox.app.space`. | One command, no infrastructure to manage. |
+
+## Why Hugging Face for generation
+
+RecallBox first used Claude through DeepSpace's integration proxy, then switched to open-weights models on Hugging Face Inference Providers. That's a choice of model family, not a missing platform feature. Hugging Face isn't in the DeepSpace integration catalog, so the tradeoff is:
+
+- **Gained:** open-weights models (any chat model on HF's router, switchable with the `HF_MODEL` secret and no code change) and HF's provider routing (`:fastest`, `:cheapest`).
+- **Given up:** the proxy's "no key to manage" and DeepSpace-credit billing. The app now owns a token, kept in the DeepSpace secrets store, and the HF account needs credits (PRO or purchased; free accounts get none for this API).
+- **Unchanged:** retrieval, prompt hardening and server-side citation validation sit in front of the model, so the grounding guarantees don't depend on which model answers.
 
 ## Why keyword retrieval instead of embeddings (for this MVP)
 
@@ -81,7 +89,7 @@ npx deepspace test run all       # Playwright: smoke, API auth, 2-user isolation
 npx deepspace deploy
 ```
 
-The e2e suite needs two test accounts (`npx deepspace test accounts create --email <name>@deepspace.test --name "<name>" --password-stdin`). It makes one real, owner-billed Claude call per run, costing a fraction of a cent.
+The e2e suite needs two test accounts (`npx deepspace test accounts create --email <name>@deepspace.test --name "<name>" --password-stdin`). It makes one real Hugging Face call per run, billed to the `HF_TOKEN` account, so the AI step needs that secret set (`npx deepspace secrets set HF_TOKEN=hf_...`).
 
 ## Verification (what was actually run)
 
@@ -90,11 +98,13 @@ The e2e suite needs two test accounts (`npx deepspace test accounts create --ema
 - Playwright (`deepspace test run all`): every spec passes against the real dev worker and Durable Object:
   - create a note, reload, and it persists; search hits and misses; edit, save, then delete with confirmation
   - a second user can't see the first user's note in the list or via a direct link, and their AI can't retrieve it
-  - a real Claude answer cites the right note, and the citation opens it
+  - a real model answer cites the right note, and the citation opens it (verified with Claude; re-run after switching to Hugging Face once `HF_TOKEN` is set)
   - demo notes don't duplicate; mobile 375px has no horizontal overflow and the nav drawer works
   - unauthenticated and forged-token action calls return 401; protected routes show sign-in
 
 ## Known limitations / next steps
+
+- **AI answers need `HF_TOKEN` with credits.** Without it, every question returns "AI answers are not configured on this server yet." (or "out of credits"). Notes, search and the "not enough information" path keep working.
 
 - **Keyword-only retrieval.** Pure paraphrases can miss. Next: hybrid retrieval (managed knowledge base or Vectorize) with BM25 kept for exact terms.
 - **No per-user rate limit on AI calls.** The UI allows one question in flight, and the server caps question length. A per-user daily quota (for example a counter collection checked in `askNotes`) should come before wider launch.

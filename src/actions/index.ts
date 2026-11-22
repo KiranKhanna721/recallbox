@@ -22,11 +22,18 @@ import {
   type GroundedAnswer,
 } from '../rag/answer'
 import { DEMO_NOTES } from '../demo-notes'
+import { hfChatCompletion, type HfResult } from '../server/huggingface'
 
-/** Claude via the DeepSpace integration proxy (owner-billed, see src/integrations.ts). */
-export const AI_ENDPOINT = 'anthropic/chat-completion'
-export const AI_MODEL = 'claude-sonnet-5-5'
 const MAX_NOTES_SCANNED = 1000
+
+const AI_ERROR_MESSAGES: Record<Extract<HfResult, { ok: false }>['code'], string> = {
+  not_configured: 'AI answers are not configured on this server yet.',
+  unauthorized: 'The AI service rejected the server credentials. Please contact the app owner.',
+  no_credits: 'The AI service is out of credits right now. Please try again later.',
+  rate_limited: 'The AI service is busy. Please wait a moment and try again.',
+  timeout: 'The AI service took too long to answer. Please try again.',
+  upstream: 'The AI service could not answer right now. Please try again.',
+}
 
 interface NoteEnvelope {
   recordId: string
@@ -51,7 +58,7 @@ async function loadOwnNotes(
 
 export type AskResult = GroundedAnswer & { retrievedCount: number; model: string | null }
 
-const askNotes: ActionHandler<Env> = async ({ userId, params, tools }) => {
+const askNotes: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
   // 1. Validate input (identity already verified by the action route).
   const question = typeof params.question === 'string' ? params.question.trim() : ''
   if (!question) return { success: false, error: 'Please enter a question.' }
@@ -82,28 +89,19 @@ const askNotes: ActionHandler<Env> = async ({ userId, params, tools }) => {
   // Nothing relevant: answer honestly without spending a model call.
   if (sources.length === 0) return { success: true, data: insufficient }
 
-  // 5–6. Ask the model for a grounded, cited answer.
-  const ai = await tools.integration(AI_ENDPOINT, {
-    model: AI_MODEL,
-    max_tokens: 1024,
-    temperature: 0.2,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildUserPrompt(question, sources) }],
-  })
-  if (!ai.success) {
-    console.warn(`[askNotes] integration failed code=${ai.code ?? 'unknown'} error=${ai.error}`)
-    const msg =
-      ai.code === 'insufficient_credits'
-        ? 'The AI service is out of credits right now. Please try again later.'
-        : 'The AI service could not answer right now. Please try again.'
-    return { success: false, error: msg }
+  // 5–6. Ask an open-weights model on Hugging Face for a grounded, cited answer.
+  const ai = await hfChatCompletion(env, { system: SYSTEM_PROMPT, user: buildUserPrompt(question, sources) })
+  if (!ai.ok) {
+    // Log the failure class only — never the token or the prompt.
+    console.warn(`[askNotes] huggingface failed code=${ai.code} status=${ai.status ?? '-'}`)
+    return { success: false, error: AI_ERROR_MESSAGES[ai.code] }
   }
 
   // 7–8. Map labels back to authorized note ids; drop anything unverifiable.
   const result = validateAnswer(extractModelText(ai.data), sources)
   return {
     success: true,
-    data: { ...result, retrievedCount: sources.length, model: AI_MODEL } satisfies AskResult,
+    data: { ...result, retrievedCount: sources.length, model: ai.model } satisfies AskResult,
   }
 }
 

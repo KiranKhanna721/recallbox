@@ -26,7 +26,6 @@ export const integrations: Record<
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
-  // RecallBox grounded Q&A: the app owner pays so any signed-in user can ask
-  // questions. Sign-in is still required (no `anonymous` flag).
-  anthropic: { billing: 'developer' },
+  // RecallBox's AI answers use Hugging Face directly (src/server/huggingface.ts),
+  // which is not in the DeepSpace catalog, so no integration is configured here.
 }
