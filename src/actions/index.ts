@@ -24,6 +24,9 @@ import {
 import { DEMO_NOTES } from '../demo-notes'
 import { hfChatCompletion, type HfResult } from '../server/huggingface'
 
+/** Claude Haiku via the DeepSpace integration proxy — the cheapest Claude in the catalog. */
+export const AI_ENDPOINT = 'anthropic/chat-completion'
+export const AI_MODEL = 'claude-haiku-5-5'
 const MAX_NOTES_SCANNED = 1000
 
 const AI_ERROR_MESSAGES: Record<Extract<HfResult, { ok: false }>['code'], string> = {
@@ -89,19 +92,52 @@ const askNotes: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
   // Nothing relevant: answer honestly without spending a model call.
   if (sources.length === 0) return { success: true, data: insufficient }
 
-  // 5–6. Ask an open-weights model on Hugging Face for a grounded, cited answer.
-  const ai = await hfChatCompletion(env, { system: SYSTEM_PROMPT, user: buildUserPrompt(question, sources) })
-  if (!ai.ok) {
-    // Log the failure class only — never the token or the prompt.
-    console.warn(`[askNotes] huggingface failed code=${ai.code} status=${ai.status ?? '-'}`)
-    return { success: false, error: AI_ERROR_MESSAGES[ai.code] }
-  }
+  // 5–6. Ask the model for a grounded, cited answer.
+  const ai = await generate(env, tools, SYSTEM_PROMPT, buildUserPrompt(question, sources))
+  if (!ai.ok) return { success: false, error: ai.error }
 
   // 7–8. Map labels back to authorized note ids; drop anything unverifiable.
   const result = validateAnswer(extractModelText(ai.data), sources)
   return {
     success: true,
     data: { ...result, retrievedCount: sources.length, model: ai.model } satisfies AskResult,
+  }
+}
+
+type GenerateResult = { ok: true; data: unknown; model: string } | { ok: false; error: string }
+
+/**
+ * Default: Claude Haiku through DeepSpace's integration proxy — no API key in
+ * the app, billed to the owner's DeepSpace credits (see src/integrations.ts).
+ * Opt-in: set the AI_PROVIDER=huggingface secret (plus HF_TOKEN) to use an
+ * open-weights model on Hugging Face instead.
+ */
+async function generate(
+  env: Env,
+  tools: Parameters<ActionHandler<Env>>[0]['tools'],
+  system: string,
+  user: string,
+): Promise<GenerateResult> {
+  if (env.AI_PROVIDER?.trim().toLowerCase() === 'huggingface') {
+    const hf = await hfChatCompletion(env, { system, user })
+    if (hf.ok) return { ok: true, data: hf.data, model: hf.model }
+    // Log the failure class only — never the token or the prompt.
+    console.warn(`[askNotes] huggingface failed code=${hf.code} status=${hf.status ?? '-'}`)
+    return { ok: false, error: AI_ERROR_MESSAGES[hf.code] }
+  }
+
+  const res = await tools.integration(AI_ENDPOINT, {
+    model: AI_MODEL,
+    max_tokens: 1024,
+    temperature: 0.2,
+    system,
+    messages: [{ role: 'user', content: user }],
+  })
+  if (res.success) return { ok: true, data: res.data, model: AI_MODEL }
+  console.warn(`[askNotes] integration failed code=${res.code ?? 'unknown'}`)
+  return {
+    ok: false,
+    error: res.code === 'insufficient_credits' ? AI_ERROR_MESSAGES.no_credits : AI_ERROR_MESSAGES.upstream,
   }
 }
 

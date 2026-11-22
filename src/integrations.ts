@@ -26,6 +26,7 @@ export const integrations: Record<
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
-  // RecallBox's AI answers use Hugging Face directly (src/server/huggingface.ts),
-  // which is not in the DeepSpace catalog, so no integration is configured here.
+  // RecallBox grounded Q&A (Claude Haiku): the app owner pays from DeepSpace
+  // credits so any signed-in user can ask. Sign-in is still required.
+  anthropic: { billing: 'developer' },
 }

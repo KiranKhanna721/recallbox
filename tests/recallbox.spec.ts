@@ -5,7 +5,7 @@
  * citation that opens the source note → cross-user isolation (UI + AI) →
  * delete with confirmation.
  *
- * The AI test makes ONE real Hugging Face chat call (billed to the HF_TOKEN account,
+ * The AI test makes ONE real Claude Haiku call (billed to the owner's DeepSpace credits,
  * a fraction of a cent). The isolation check costs nothing: with no matching
  * notes the server answers "insufficient" without calling the model.
  */
