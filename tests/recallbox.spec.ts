@@ -81,7 +81,9 @@ test('notes CRUD, persistence, search, AI citation, isolation', async ({ users }
   await expect(a.getByText('Select a note')).toBeVisible({ timeout: 15_000 })
   await a.reload()
   await a.getByLabel('Search notes').fill(marker)
-  await expect(a.getByText(/No matches for/)).toBeVisible({ timeout: 15_000 })
+  // Either other notes exist (no match) or the account is now empty.
+  await expect(a.getByText(/No matches for/).or(a.getByText('No notes yet'))).toBeVisible({ timeout: 15_000 })
+  await expect(a.getByRole('button', { name: new RegExp(marker) })).toHaveCount(0)
 })
 
 test('protected pages ask signed-out visitors to sign in', async ({ page }) => {
